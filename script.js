@@ -1,292 +1,198 @@
-import {
-    BOOKS_PER_PAGE,
-    authors,
-    genres,
-    books,
-    html,
-  } from "./data.js";
-  import {
-    populateDropdownMenu,
-    setThemeColors,
-    createPreviewFragment,
-    displayBooks,
-  } from "./function.js";
+import { BOOKS_PER_PAGE, authors, books } from "./components/data.js";
+import { selectors, css, innerHTML } from "./components/utilities.js";
+import { loadedTracker } from "./components/helper.js";
 
-  // Data
+// All eventHandlers below
 
-  /**
-   * The variable will be used to store matches of
-   * current filter settings from the books object.
-   * @type {Array}
-   */
-  let matches = books;
+const previewLoading = loadedTracker(books);
 
-  /**
-   * This variable will be used to as the current page of
-   * books being display and will increment by 1.
-   * @type {number}
-   */
-  let page = 1;
+// Loads more books when the loadMore button is clicked
+const moreBooksHandler = (e) => {
+  e.stopPropagation();
+  previewLoading.increase();
+  previewLoading.checker();
 
-  let startIndex = (page - 1) * BOOKS_PER_PAGE;
-  let endIndex = BOOKS_PER_PAGE;
+  // With concern to time complexity this event handler will only ever loop through and append a max of 36 items
+  for (let i = previewLoading.refValue(); i < previewLoading.loaded(); i++) {
+    if (i === books.length) {
+      selectors.loadMore.disabled = true;
+      break;
+    } else {
+      selectors.list.appendChild(innerHTML(books[i], i));
+    }
+  }
+};
 
-  /**
-   * range variable will be used to extract a certain number of books that
-   * will be displayed on webpage using array slice method
-   */
-  let range = [startIndex, endIndex];
+// Opens the preview overlay when a preview is clicked and display all the same information as the preview and more
+const openOverlayHandler = (e) => {
+  const overlay = selectors.previewOverlay.overlay;
+  const bookPreview = e.target.closest(".preview");
+  const index = bookPreview.dataset.index; // The index is used to retrieve the corresponding data
 
-  // Error Checking
-  if (!books && !Array.isArray(books)) {
-    throw new Error("Source required");
+  selectors.previewOverlay.overlayBlur.src = books[index].image;
+  selectors.previewOverlay.overlayImage.src = books[index].image;
+  selectors.previewOverlay.titleOverlay.textContent = books[index].title;
+
+  let dateOverlay = new Date(books[index].published).getFullYear();
+  selectors.previewOverlay.dataOverlay.textContent = `${authors[books[index].author]} (${dateOverlay})`;
+  selectors.previewOverlay.infoOverlay.textContent = books[index].description;
+
+  overlay.show();
+};
+
+// Opens the theme settings and sets its values
+const themeToggleHandler = (e) => {
+  // Checks to see if backgroundColor matches that of the set 'night' color scheme
+  const darkMode = getComputedStyle(document.body).backgroundColor === `rgb(${css.night.light})`;
+  selectors.theme.themeSelect.value = darkMode ? "night" : "day";
+
+  const overlay = selectors.theme.themeOverlay;
+  const closeBtn = selectors.theme.themeCancelBtn;
+  overlay.show();
+
+  if (e.target === closeBtn) {
+    overlay.close();
+  }
+};
+
+// Changes the color scheme when the form values have been saved/submitted
+const themeSubmitHandler = (e) => {
+  e.preventDefault();
+
+  const overlay = selectors.theme.themeOverlay;
+  const formData = new FormData(e.target);
+  const themeChoice = Object.fromEntries(formData);
+  const theme = themeChoice.theme;
+
+  document.documentElement.style.setProperty("--color-dark", css[theme].dark);
+  document.documentElement.style.setProperty("--color-light", css[theme].light);
+  overlay.close();
+};
+
+let formValues; // Will only be truthy when the searchFrom is submitted
+
+// Opens/closes the filter form
+const searchToggleHandler = (e) => {
+  const overlay = selectors.search.searchOverlay;
+  const closeBtn = selectors.search.searchCancelBtn;
+  overlay.show();
+
+  if (formValues) {
+    // The values are based on what was entered into the form
+    selectors.genresSelect.value = formValues.genre;
+    selectors.authorSelect.value = formValues.author;
+    selectors.title.value = formValues.title;
   }
 
-  if (!range && range.length < 2) {
-    throw new Error("Range must be an array with two numbers");
+  if (e.target === closeBtn) {
+    overlay.close();
+    selectors.search.searchForm.reset();
+  }
+};
+
+let filteredBooks; // Will only be truthy when searchForm is submitted
+let filterLoading;
+
+const searchSubmitHandler = (e) => {
+  e.preventDefault();
+  const overlay = selectors.search.searchOverlay;
+  const formData = new FormData(e.target);
+  const filters = Object.fromEntries(formData);
+  const result = [];
+
+  books.forEach((book, index) => {
+    const { title, author, genres } = book;
+    const categories = [...genres]; // Spread operator to make sifting through the data easier instead of using a for of loop
+
+    const genreMatch = categories.includes(filters.genre) || filters.genre === "All";
+    const authorMatch = author === filters.author || filters.author === "All";
+    const titleMatch = title.toLowerCase().includes(filters.title.toLowerCase()) || filters.title === "";
+
+    // Only if all three are true will the data get pushed to the array
+    if (authorMatch && genreMatch && titleMatch) {
+      result.push([book, index]);
+    }
+  });
+
+  // Retrieving and manipulating data above this line
+  // Below this line: Conditionals and actions
+  const previews = selectors.list.querySelectorAll(".preview");
+
+  for (const book of previews) {
+    book.remove(); // Upon submission all previous books are removed
   }
 
-  /**
-   * This function is used to popultae the drop down lists of
-   * genres and authors.
-   * @type {function }
-   */
-  populateDropdownMenu(genres, "Genres", html.search.genre);
-  populateDropdownMenu(authors, "Authors", html.search.author);
-
-  /**
-   * This will check for a preference of dark in the css .
-   * If there is then the theme settings will updated using the {@link setThemeColors} function
-   * */
-  if (
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    html.settings.theme.value = "night";
-    setThemeColors("night");
+  if (result.length === 0) {
+    // If no matches are found the needed message pops up and loadMore button is disabled
+    selectors.message.classList.add("list__message_show");
+    selectors.loadMore.disabled = true;
+    selectors.loadMore.querySelector(".list__remaining").textContent = `(0)`;
   } else {
-    html.settings.theme.value = "day";
-    setThemeColors("day");
+    selectors.message.classList.remove("list__message_show");
+    selectors.loadMore.disabled = false;
   }
 
-  // EVENT HANDLERS
+  if (result.length < BOOKS_PER_PAGE) {
+    // Loads and appends books and disables the button
+    for (let i = 0; i < result.length; i++) {
+      let book = result[i][0];
+      let index = result[i][1];
+      selectors.list.appendChild(innerHTML(book, index));
+      selectors.loadMore.disabled = true;
+      selectors.loadMore.querySelector(".list__remaining").textContent = `(0)`;
+    }
+  } else {
+    // If there are more books than 36, then 36 are loaded, the rest are loaded with a "new" eventListener
+    for (let i = 0; i < BOOKS_PER_PAGE; i++) {
+      let book = result[i][0];
+      let index = result[i][1];
+      selectors.list.appendChild(innerHTML(book, index));
+      selectors.loadMore.querySelector(".list__remaining").textContent = `(${result.length - BOOKS_PER_PAGE})`;
+      selectors.loadMore.removeEventListener("click", moreBooksHandler); // Old eventListener is removed
+      filteredBooks = result;
+      filterLoading = loadedTracker(filteredBooks);
+    }
+  }
 
-  /**
-   * This event handler will fire when the user changes value of dropdown in settings and clicks on the "Save" button.
-   * It can toggle between a light mode and dark mode so that a user can use the app comfortably at night.
-   * @param {Event} event
-   */
+  overlay.close();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  formValues = filters; // formValues receives the same data as the filters variable i.e gets used in the searchToggleHandler
+};
 
-  const toggleLightAndDarkModeHandler = (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const { theme } = Object.fromEntries(formData);
+// Same concept as the moreBooksHandler but only runs if filteredBooks is truthy
 
-    if (theme === "night") {
-      document.documentElement.style.setProperty("--color-dark", "255, 255, 255");
-      document.documentElement.style.setProperty("--color-light", "10, 10, 20");
+const filterMoreHandler = (e) => {
+  if (!filteredBooks) {
+    return;
+  }
+
+  filterLoading.increase();
+  filterLoading.checker();
+
+  for (let i = filterLoading.refValue(); i < filterLoading.loaded(); i++) {
+    if (i === filteredBooks.length) {
+      selectors.loadMore.disabled = true;
+      break;
     } else {
-      document.documentElement.style.setProperty("--color-dark", "10, 10, 20");
-      document.documentElement.style.setProperty("--color-light", "255, 255, 255");
+      let book = filteredBooks[i][0];
+      let index = filteredBooks[i][1];
+      selectors.list.appendChild(innerHTML(book, index));
     }
+  }
+};
 
-    html.settings.overlay.open = false;
-  };
+// All eventListeners fall below
 
-  /**
-   * This function will fire when book previews are added to the web page.
-   *  This will add event listeners so they will be able to be clicked on
-   *  and view the open active Preview with the {@link showBookPreviewHandler}
-   */
-  const addBookPreviewHandler = () => {
-    const previewsArray = Array.from(document.querySelectorAll("[preview]"));
+selectors.loadMore.addEventListener("click", moreBooksHandler);
+selectors.loadMore.addEventListener("click", filterMoreHandler);
+selectors.list.addEventListener("click", openOverlayHandler);
+selectors.previewOverlay.overlayBtn.addEventListener("click", () => {
+  selectors.previewOverlay.overlay.close();
+});
 
-    for (const preview of previewsArray) {
-      preview.addEventListener("click", showBookPreviewHandler);
-    }
-  };
-  html.list.item.appendChild(createPreviewFragment(matches, range));
-  displayBooks(matches, page);
-
-  /**
-   * This handler will fire when a user clicks on the "Show More" button.
-   * The page number will increase by 1 and new book items will be appended to the webpage.
-   * The new book items will now be able to be clicked on to view the book overlay
-   * and the "show more" button showing the number of items left will be updated
-   */
-  const showMoreBooksHandler = () => {
-    page = page + 1;
-    range = [(page - 1) * BOOKS_PER_PAGE, page * BOOKS_PER_PAGE];
-
-    html.list.item.appendChild(createPreviewFragment(matches, range));
-    addBookPreviewHandler();
-
-    displayBooks(matches, page);
-  };
-
-  /**
-   * This event handler will fire when a user clicks on the "search button".
-   * The form overlay will appear allowing user to filter books by genre, author or title
-   */
-  const openSearchOverlayHandler = () => {
-    html.search.overlay.style.display = "block";
-    html.search.title.focus();
-  };
-  /**
-   * This event handler will fire when a user clicks on the "cancel" button in the search overlay
-   */
-  const closeSearchOverlayHandler = () => {
-    html.search.overlay.style.display = "none";
-  };
-
-  /**
-   * This event handler will fire when a user clicks on the "settings" button.
-   * The form overlay will appear allowing the user to toggle between the dark and light mode
-   */
-  const openSettingsOverlayHandler = () => {
-    html.settings.overlay.style.display = "block";
-  };
-
-  /**
-   * This event handler will fire when a user clicks on the "cancel" button in the settings overlay
-   */
-  const closeSettingsOverlayHandler = () => {
-    html.settings.overlay.style.display = "none";
-  };
-
-  /**
-   * This handler will fire when the book Preview overlay is closed. The overlay will be closed
-   */
-  const closeBookPreviewHandler = () => {
-    html.preview.active.style.display = "none";
-  };
-
-  /**
-   * This handler will fire when a user clicks on submit button of the search overlay.
-   * When the user manipulates the input fields of Title, genre or author so that it can
-   * be filtered to the books they desire, the filtered books will then be shown on the webpage
-   * @param {Event} event
-   */
-
-  const filterBooksHandler = (event) => {
-    html.search.overlay.style.display = "none";
-    event.preventDefault();
-
-    const formData = new FormData(event.target);
-    const filters = Object.fromEntries(formData);
-    const selectedGenre = filters.genre;
-    const selectedAuthor = filters.author;
-    const selectedTitle = filters.title;
-    let results = [];
-
-    if (
-      selectedTitle === "" &&
-      selectedGenre === "any" &&
-      selectedAuthor === "any"
-    ) {
-      results = books;
-    } else {
-      for (const book of books) {
-        const macthesTitle =
-          selectedTitle.trim() === "" ||
-          book.title.toLowerCase().includes(selectedTitle.toLowerCase());
-
-        const matchesAuthor =
-          selectedAuthor === "any" || book.author === selectedAuthor;
-
-        let matchesGenre = false;
-
-        for (const genre of book.genres) {
-          if (selectedGenre === "any") {
-            matchesGenre = true;
-          } else if (genre === selectedGenre) {
-            matchesGenre = true;
-          }
-        }
-
-        if (macthesTitle && matchesAuthor && matchesGenre) {
-          results.push(book);
-        }
-      }
-    }
-
-    matches = results;
-
-    if (matches.length === 0) {
-      html.list.message.style.display = "block";
-    } else {
-      html.list.message.style.display = "none";
-    }
-
-    page = 1;
-    range = [(page - 1) * BOOKS_PER_PAGE, page * BOOKS_PER_PAGE];
-    html.list.button.disabled = false;
-
-    html.list.item.innerHTML = "";
-    html.list.item.appendChild(createPreviewFragment(results, range));
-    addBookPreviewHandler();
-
-    displayBooks(matches, page);
-    html.search.form.reset();
-  };
-
-  /**
-   * This handler will fire when a user clicks on any book displayed.
-   *  In order to determine which book the user is currently clicking on the
-   * entire event buble path is checked with event.path or event.composedPath().
-   * The bubbling path is looped over until an element with a preview ID is found.
-   *  Once found the book preview overlay will appear and the Image, title containing,
-   * subtitle containing the author's name and the year the book was publised as well a short description of the book
-   * @param {Event} event
-   *
-   */
-  const showBookPreviewHandler = (event) => {
-    let pathArray = Array.from(event.path || event.composedPath());
-    let active = null;
-
-    for (const node of pathArray) {
-      const previewId = node.dataset.preview;
-      if (active) break;
-
-      for (const singleBook of books) {
-        if (singleBook.id === previewId) {
-          active = singleBook;
-        }
-      }
-    }
-
-    if (!active) {
-      return;
-    }
-
-    html.preview.active.style.display = "block";
-    html.preview.blur.src = active.image;
-    html.preview.image.src = active.image;
-    html.preview.title.innerText = active.title;
-    html.preview.subtitle.innerText = `${authors[active.author]} (${new Date(
-      active.published
-    ).getFullYear()})`;
-    html.preview.description.innerText = active.description;
-  };
-
-  addBookPreviewHandler();
-
-  // EVENT LISTENERS
-
-  html.search.cancel.addEventListener("click", openSearchOverlayHandler);
-
-  html.other.search.addEventListener("click", closeSearchOverlayHandler);
-
-  html.other.settings.addEventListener("click", openSettingsOverlayHandler);
-
-  html.settings.cancel.addEventListener("click", closeSettingsOverlayHandler);
-
-  html.settings.form.addEventListener("submit", toggleLightAndDarkModeHandler);
-
-  html.list.button.addEventListener("click", showMoreBooksHandler);
-
-  html.preview.close.addEventListener("click", closeBookPreviewHandler);
-
-  html.list.item.addEventListener("click", showBookPreviewHandler);
-
-  html.search.form.addEventListener("submit", filterBooksHandler);
+selectors.theme.themeBtn.addEventListener("click", themeToggleHandler);
+selectors.theme.themeCancelBtn.addEventListener("click", themeToggleHandler);
+selectors.theme.themeForm.addEventListener("submit", themeSubmitHandler);
+selectors.search.searchBtn.addEventListener("click", searchToggleHandler);
+selectors.search.searchCancelBtn.addEventListener("click", searchToggleHandler);
+selectors.search.searchForm.addEventListener("submit", searchSubmitHandler);

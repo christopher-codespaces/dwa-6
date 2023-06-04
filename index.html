@@ -5,7 +5,6 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-
     <title>Book Connect</title>
 
     <link rel="apple-touch-icon" sizes="180x180" href="/meta/apple-touch-icon.png">
@@ -28,6 +27,7 @@
     />
 
     <script src="./script.js" defer type="module"></script>
+    <script src="./components/utilities.js" defer type="module"></script>
 
   </head>
   <body>
@@ -112,12 +112,12 @@
     </dialog>
 
 
-    <dialog class="overlay" data-search-overlay> <!--for the search button-->
+    <dialog class="overlay" data-search-overlay>
       <div class="overlay__content">
         <form class="overlay__form" data-search-form id="search">
           <label class="overlay__field">
             <div class="overlay__label">Title</div>
-            <input class="overlay__input" data-search-title name="title" placeholder="Any"></input>
+            <input class="overlay__input" data-search-title name="title" placeholder="Any">
           </label>
 
           <label class="overlay__field">
@@ -139,7 +139,7 @@
       </div>
     </dialog>
 
-    <dialog class="overlay" data-settings-overlay> <!--for the settings button-->
+    <dialog class="overlay" data-settings-overlay>
       <div class="overlay__content">
         <form class="overlay__form" data-settings-form id="settings">
           <label class="overlay__field">
