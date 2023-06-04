@@ -2,7 +2,6 @@ import { BOOKS_PER_PAGE, authors, books } from "./components/data.js";
 import { selectors, css, innerHTML } from "./components/utilities.js";
 import { loadedTracker } from "./components/helper.js";
 
-// All eventHandlers below
 
 const previewLoading = loadedTracker(books);
 
